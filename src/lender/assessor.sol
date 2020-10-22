@@ -43,6 +43,10 @@ contract Assessor is Auth, FixedPoint, Interest {
     // bearing amount
     uint           public seniorBalance_;
 
+    // senior virtual balance offsets the drop holdings of
+    // the clerk
+    uint           public seniorVirtualBalance_;
+
     // interest rate per second for senior tranche
     Fixed27         public seniorInterestRate;
 
@@ -114,6 +118,10 @@ contract Assessor is Auth, FixedPoint, Interest {
         seniorRatio = Fixed27(seniorRatio_);
     }
 
+    function setSeniorVirtualBalance(uint virtualBalance) external auth {
+        seniorVirtualBalance = virtualBalance; 
+    }
+
     function seniorRatioBounds() public view returns (uint minSeniorRatio_, uint maxSeniorRatio_) {
         return (minSeniorRatio.value, maxSeniorRatio.value);
     }
@@ -146,7 +154,7 @@ contract Assessor is Auth, FixedPoint, Interest {
             return ONE;
         }
         uint totalAssets = safeAdd(epochNAV, epochReserve);
-        uint seniorAssetValue = calcSeniorAssetValue(seniorDebt(), seniorBalance_);
+        uint seniorAssetValue = calcSeniorAssetValue(seniorDebt(), seniorBalance_, seniorVirtualBalance_);
 
         if(totalAssets < seniorAssetValue) {
             seniorAssetValue = totalAssets;
@@ -160,7 +168,7 @@ contract Assessor is Auth, FixedPoint, Interest {
             return ONE;
         }
         uint totalAssets = safeAdd(epochNAV, epochReserve);
-        uint seniorAssetValue = calcSeniorAssetValue(seniorDebt(), seniorBalance_);
+        uint seniorAssetValue = calcSeniorAssetValue(seniorDebt(), seniorBalance_, seniorVirtualBalance_);
 
         if(totalAssets < seniorAssetValue) {
             return 0;
@@ -177,7 +185,7 @@ contract Assessor is Auth, FixedPoint, Interest {
         uint decAmount = rmul(currencyAmount, seniorRatio.value);
 
         if (decAmount > seniorDebt_) {
-            seniorBalance_ = calcSeniorAssetValue(seniorDebt_, seniorBalance_);
+            seniorBalance_ = calcSeniorAssetValue(seniorDebt_, seniorBalance_, seniorVirtualBalance_);
             seniorDebt_ = 0;
             return;
         }
@@ -200,7 +208,7 @@ contract Assessor is Auth, FixedPoint, Interest {
         // this case should most likely never happen
         if (incAmount > seniorBalance_) {
             // all the currency of senior is used as interest bearing currencyAmount
-            seniorDebt_ = calcSeniorAssetValue(seniorDebt_, seniorBalance_);
+            seniorDebt_ = calcSeniorAssetValue(seniorDebt_, seniorBalance_, seniorVirtualBalance_);
             seniorBalance_ = 0;
             return;
         }
@@ -211,8 +219,8 @@ contract Assessor is Auth, FixedPoint, Interest {
         lastUpdateSeniorInterest = block.timestamp;
     }
 
-    function calcSeniorAssetValue(uint _seniorDebt, uint _seniorBalance) public pure returns(uint) {
-        return safeAdd(_seniorDebt, _seniorBalance);
+    function calcSeniorAssetValue(uint _seniorDebt, uint _seniorBalance, uint _seniorVirtualBalance) public pure returns(uint) {
+        return safeAdd(_seniorVirtualBalance, safeAdd(_seniorDebt, _seniorBalance));
     }
 
     function dripSeniorDebt() public returns (uint) {
@@ -235,5 +243,9 @@ contract Assessor is Auth, FixedPoint, Interest {
 
     function seniorBalance() public view returns (uint) {
         return seniorBalance_;
+    }
+
+    function seniorVirtualBalance() public view returns (uint) {
+        return seniorVirtualBalance_;
     }
 }
