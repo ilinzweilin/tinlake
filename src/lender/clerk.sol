@@ -19,6 +19,7 @@ contract Clerk {
 
     uint public expectedRevenue;
     address public mgr;
+    uint public avgDropOut;
     address public dai;
 
     // --- Math ---
@@ -34,6 +35,7 @@ contract Clerk {
     }
 
     function join(uint d) public auth {
+        drop.mint(d);
         mgr.join(d);
         uint vb = assessor.seniorVirtualBalance();
         // add a virtual balance to calculation of dropPrice so that price remains constant.
@@ -44,6 +46,8 @@ contract Clerk {
         require(reserves == 0, "Use money in reserves first");
         drip();
         mgr.draw(d);
+        collateralAtWork += d / assessor.calcSeniorTokenPrice();
+        avgDropOut = add(avgDropOut, d / assessor.calcSeniorTokenPrice());
         uint vb = assessor.seniorVirtualBalance();
         // decrease virtualbalance by dai (price remains constant)
         assessor.setVirtualBalance(sub(vb, dai));
@@ -54,7 +58,9 @@ contract Clerk {
     }
 
     function wipe(uint d) public auth {
+        collateralAtWork -= d / assessor.calcSeniorTokenPrice();
         require(mgr.tab() > 0, "loan already repaid");
+        dai.transferFrom(reserve, d);
         drip();
         expectedRevenue = sub(expectedRevenue, d);
         mgr.wipe(d);
