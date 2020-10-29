@@ -114,6 +114,10 @@ contract Assessor is Auth, FixedPoint, Interest {
         seniorRatio = Fixed27(seniorRatio_);
     }
 
+    function setSeniorVirtualBalance(uint virtualBalance) external auth {
+        seniorVirtualBalance = virtualBalance; 
+    }
+
     function seniorRatioBounds() public view returns (uint minSeniorRatio_, uint maxSeniorRatio_) {
         return (minSeniorRatio.value, maxSeniorRatio.value);
     }
@@ -212,7 +216,7 @@ contract Assessor is Auth, FixedPoint, Interest {
     }
 
     function calcSeniorAssetValue(uint _seniorDebt, uint _seniorBalance) public pure returns(uint) {
-        return safeAdd(safeAdd(_seniorDebt, _seniorBalance));
+        return safeAdd(_seniorDebt, _seniorBalance);
     }
 
     function dripSeniorDebt() public returns (uint) {
@@ -236,5 +240,4 @@ contract Assessor is Auth, FixedPoint, Interest {
     function seniorBalance() public view returns (uint) {
         return seniorBalance_;
     }
-
 }
