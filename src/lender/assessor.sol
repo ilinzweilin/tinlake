@@ -113,11 +113,7 @@ contract Assessor is Auth, FixedPoint, Interest {
         reBalance(seniorAsset, seniorRatio_);
         seniorRatio = Fixed27(seniorRatio_);
     }
-
-    function setSeniorVirtualBalance(uint virtualBalance) external auth {
-        seniorVirtualBalance = virtualBalance; 
-    }
-
+    
     function seniorRatioBounds() public view returns (uint minSeniorRatio_, uint maxSeniorRatio_) {
         return (minSeniorRatio.value, maxSeniorRatio.value);
     }
