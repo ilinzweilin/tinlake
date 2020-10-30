@@ -30,14 +30,18 @@ interface TrancheLike {
     function mint(address usr, uint amount) public;
 }
 
-
 contract Clerk is Auth, Math {
 
     uint public expectedRevenue;
     uint public avgDropOut;
+    // DAI drawn from the vault not containing accrued interest 
+    uint public principalDAI;
     // virtual DAI balance that was already added to the seniorAssetValue, but has not been drawn yet
     uint public balanceDAI;
-
+    // DAI that are drawn from the vault without accrued interest: required for mkr interest calculation
+    uint public principalDAI;
+    // total DAI value of DROP tokens that are locked as collateral considering the token price on lockup: required for tinlake interest calculation, weighted token price of locked collateral
+    uint public DAIForDROP;
 
     address public mgr;
     address public dai;
@@ -67,12 +71,16 @@ contract Clerk is Auth, Math {
         // TODO: check if the injected DAI liquidity could potentially violate the pool constraints
 
         // increase balanceDAI, so that the amount can be drawn
-        balanceDAI = safeAdd(balanceDAI, amountDAI)
+        balanceDAI = safeAdd(balanceDAI, amountDAI);
+        // increase total DAI value of locked Collateral
+        DAIforDROP = safeAdd(DAIForDROP, amountDAI);
 
+
+        // TODO: make sep function and use in balance
         // increase seniorAssetValue by amountDAI to keep the DROP token price constant 
         uint currenNav = nav.currentNAV();
         uint newSeniorAsset = coordiator.calcSeniorAssetValue(0, amountDAI,
-            assessor.calcSeniorAssetValue(assessor.seniorDebt(), assessor.seniorBalance()), reserve.totalBalance(), currenNav)
+            assessor.calcSeniorAssetValue(assessor.seniorDebt(), assessor.seniorBalance()), reserve.totalBalance(), currenNav);
         uint newSeniorRatio = coordinator.calcSeniorRatio(newSeniorAsset, currenNav, reserve.totalBalance());
         assessor.changeSeniorAsset(newSeniorRatio, amountDAI, 0);
         
@@ -88,7 +96,10 @@ contract Clerk is Auth, Math {
         require(amountDAI <= balanceDAI, "Add amount to senior asset first");
 
         balanceDAI = safeSub(balanceDAI, amountDAI);
-        collateralAtWork += rdiv(amountDAI, assessor.calcSeniorTokenPrice());
+        principalDAI = safeAdd(principalDAI, amountDAI);
+
+        // use weighted price here 
+        collateralAtWork += rdiv(amountDAI, weightedDropPrice());
 
         drip();
         expectedRevenue = safeAdd(expectedRevenue, amountDAI);
@@ -96,11 +107,17 @@ contract Clerk is Auth, Math {
         // draw dai and move to reserve
         mgr.draw(amountDAI);
         dai.approve(address(reserve), amountDAI);
-        reserve.deposit(amountDAI)
+        reserve.deposit(amountDAI);
     }
 
     function wipe(uint d) public auth {
+        // use weighted price here
         collateralAtWork -= d / assessor.calcSeniorTokenPrice();
+        // rebalance here again the avg price 
+        // should increase balance agaian? because I received the interest already for this amount
+
+        // adjust pricipal DAI
+
         require(mgr.tab() > 0, "loan already repaid");
         dai.transferFrom(reserve, d);
         drip();
@@ -120,7 +137,11 @@ contract Clerk is Auth, Math {
 
     // update revenue/losses of loans financed by the clerk
     function drip() public {
-        uint tinlakeInterest;
+
+        // uint tinlakeInterest. 
+        // -> collateralAtWork / principal = avg price token
+        // -> collateral * currentTokenPrice vs accVirtualDaiBalance
+        // principal / vault debt --> mkr interest 
         uint makerInterest;
         expectedRevenue = mul(expectedRevenue, sub(tinlakeInterest, makerInterest));
     }
@@ -133,5 +154,22 @@ contract Clerk is Auth, Math {
         // (price adjustment happens in `balance`).
         // basically the inverse of join...
     }
+
+    // returns the current rate for the accrued intrest on the DAI drawn from the vault
+    function mkrInterest() public returns (uint) {
+        // devide vault debt by principalDAI
+        return safeDiv(mgr.tab(), pincipalDAI);
+    }
+
+    // returns the current senior rate for the accrued intrest on the DROP tokens locked in the vault
+    function tinlakeInterest() public return (uint) {
+        // TODO: fix call: vat -> urn -> ink
+        return safeDiv(rmul(mgr.ink(), assessor.calcSeniorTokenPrice()), DAIforDROP);
+    }
     
+    // returns the weigthed price per DROP locked in the vault
+    function weightedDropPrice() public return (uint) {
+        // TODO: fix call: vat -> urn -> ink
+        return safeDiv(DAIforDROP, mgr.ink());
+    }
 }
