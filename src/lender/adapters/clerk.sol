@@ -162,13 +162,13 @@ contract Clerk is Auth, Math {
     }
 
     // returns the current senior rate for the accrued intrest on the DROP tokens locked in the vault
-    function tinlakeInterest() public return (uint) {
+    function tinlakeInterest() public returns (uint) {
         // TODO: fix call: vat -> urn -> ink
         return safeDiv(rmul(mgr.ink(), assessor.calcSeniorTokenPrice()), DAIforDROP);
     }
     
     // returns the weigthed price per DROP locked in the vault
-    function weightedDropPrice() public return (uint) {
+    function weightedDropPrice() public returns (uint) {
         // TODO: fix call: vat -> urn -> ink
         return safeDiv(DAIforDROP, mgr.ink());
     }
