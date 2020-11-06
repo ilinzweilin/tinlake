@@ -132,12 +132,12 @@ contract Clerk is Auth, Math {
     // principal + DAI value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
     // burn DROP tokens worth of accrued tinlake interest to prevent senior dilution
     function rebalanceSenior() public {
-        uint pice = senior.calcSeniorTokenPrice()
+        uint priceDrop = senior.calcSeniorTokenPrice()
         // DROP currently not used as collateral
         uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork);
         uint currentBalanceDAI = safeAdd(principalDAI, rmul(unusedCollateral, senior.calcSeniorTokenPrice());   // TODO: fix call: vat -> urn -> ink
         uint balanceSurplusDAI = safeSub(currentBalanceDAI, balanceDAI);
-        uint dropToBurn = rdiv(balanceSurplusDAI, dropPrice);
+        uint dropToBurn = rdiv(balanceSurplusDAI, priceDrop);
 
         mgr.exit(dropToBurn);
         drop.burn(address(this), dropToBurn); // TODO: fix impl
