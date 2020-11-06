@@ -48,7 +48,6 @@ contract Clerk is Auth, Math {
     uint public collateralAtWork;
 
 
-
     address public mgr;
     address public dai;
 
@@ -79,7 +78,6 @@ contract Clerk is Auth, Math {
         // increase balanceDAI, so that the amount can be drawn
         balanceDAI = safeAdd(balanceDAI, amountDAI);
         
-       
         // increase seniorAssetValue by amountDAI to keep the DROP token price constant 
         updateSeniorValue(amountDAI);
         
@@ -125,9 +123,11 @@ contract Clerk is Auth, Math {
     function exit(uint drop) public auth {
         drip();
         require(expectedRevenue == 0);
-
+        
+        // TODO decrease: balanceDAI 
         updateSeniorValue(-drop);
         mgr.exit(drop);
+        drop.burn(self, dropToBurn); // TODO: fix impl
     }
 
     // principal + DAI value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
@@ -167,7 +167,6 @@ contract Clerk is Auth, Math {
         drip();
         return safeSub(expectedRevenue - mgr.tab());
     }
-
 
     // returns the current rate for the accrued intrest on the DAI drawn from the vault
     function mkrInterest() public returns (uint) {
