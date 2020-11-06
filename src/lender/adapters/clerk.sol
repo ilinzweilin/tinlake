@@ -135,7 +135,6 @@ contract Clerk is Auth, Math {
         uint pice = senior.calcSeniorTokenPrice()
         // DROP currently not used as collateral
         uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork);
-        drip();
         uint currentBalanceDAI = safeAdd(principalDAI, rmul(unusedCollateral, senior.calcSeniorTokenPrice());   // TODO: fix call: vat -> urn -> ink
         uint balanceSurplusDAI = safeSub(currentBalanceDAI, balanceDAI);
         uint dropToBurn = rdiv(balanceSurplusDAI, dropPrice);
@@ -146,8 +145,6 @@ contract Clerk is Auth, Math {
 
     function rebalanceJunior() public {
         require(mgr.tab() == 0, "vault loan has to be paid back first");
-        
-        drip();
         uint profit = profit();
         require(profit > 0, "no profit to give to junior")
         
