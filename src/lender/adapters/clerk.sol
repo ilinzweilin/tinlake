@@ -107,15 +107,15 @@ contract Clerk is Auth, Math {
         require(mgr.tab() > 0, "vault debt already repaid");
 
         drip();
-        expectedRevenue = safeDiv(expectedRevenue, amountDAI);  
 
+        expectedRevenue = safeDiv(expectedRevenue, amountDAI);  
         // decrease the principal amount by amountDAI without accrued interest
         principalReturned = rdiv(amountDAI, safeAdd(ONE, tinlakeInterest);
         // decrease the collateral amount based on the principal returned and weighted DROP price
         collateralAtWork = safeSub(collateralAtWork, rdiv(principalReturned,  weightedDropPrice()));
 
         require(reserve.payout(amountDAI), "not enough funds in reserve");
-        mgr.wipe(d);
+        mgr.wipe(amountDAI);
     }
 
      // remove drop from mkr system
