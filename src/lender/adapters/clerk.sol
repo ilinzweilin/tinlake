@@ -121,12 +121,12 @@ contract Clerk is Auth, Math {
      // remove drop from mkr system
     function exit(uint drop) public auth {
         drip();
-        require(expectedRevenue == 0);
+        require(expectedRevenue == 0, "vault debt ha to be repaid first");
         
         // TODO decrease: balanceDAI 
         updateSeniorValue(-drop);
         mgr.exit(drop);
-        drop.burn(self, dropToBurn); // TODO: fix impl
+        drop.burn(address(this), drop); // TODO: fix impl
     }
 
     // principal + DAI value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
@@ -140,7 +140,7 @@ contract Clerk is Auth, Math {
         uint dropToBurn = rdiv(balanceSurplusDAI, dropPrice);
 
         mgr.exit(dropToBurn);
-        drop.burn(self, dropToBurn); // TODO: fix impl
+        drop.burn(address(this), dropToBurn); // TODO: fix impl
     }
 
     function rebalanceJunior() public {
