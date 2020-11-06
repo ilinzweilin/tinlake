@@ -136,8 +136,7 @@ contract Clerk is Auth, Math {
         // DROP currently not used as collateral
         uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork);
         drip();
-        // TODO: fix calculation
-        uint currentBalanceDAI = safeSub(safeAdd(principalDAI, rmul(unusedCollateral, senior.calcSeniorTokenPrice(), profit());   // TODO: fix call: vat -> urn -> ink
+        uint currentBalanceDAI = safeAdd(principalDAI, rmul(unusedCollateral, senior.calcSeniorTokenPrice());   // TODO: fix call: vat -> urn -> ink
         uint balanceSurplusDAI = safeSub(currentBalanceDAI, balanceDAI);
         uint dropToBurn = rdiv(balanceSurplusDAI, dropPrice);
 
