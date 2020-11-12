@@ -139,19 +139,19 @@ contract Clerk is Auth, Math {
         updateSeniorValue(-payJunior);
     }
 
-    // principal + DAI value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
+    // vault debt + value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
     // balanceDAI =  mgr.tab() + (mgr.ink() - collateralAtWork) * senior.calcSeniorTokenPrice()
     // burn DROP tokens worth of accrued tinlake interest to prevent senior dilution
     function rebalanceSenior() public {
         // todo: discuss if it should be allowed to burn if mgr.debt() > balance, but there is still unused collateral
         uint priceDROP = senior.calcSeniorTokenPrice()
 
-        // max unused DROP amount considering current drop price
-        uint unusedCollateralGoal;
+        // unused DROP amount considering current drop price
+        uint collateralChill;
         if (balanceDAI > mgr.tab()) {
-            unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
+            collateralChill = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
         }
-        uint burnAmount = safeSub(safeSub(mgr.ink(), collateralAtWork), unusedCollateralGoal); // TODO: fix mgr.ink
+        uint burnAmount = safeSub(safeSub(mgr.ink(), collateralAtWork), collateralChill); // TODO: fix mgr.ink
     
         mgr.exit(burnAmount);
         drop.burn(address(this), burnAmount); // TODO: fix impl
