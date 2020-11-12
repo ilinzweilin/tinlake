@@ -146,7 +146,7 @@ contract Clerk is Auth, Math {
         // todo: discuss if it should be allowed to burn if mgr.debt() > balance, but there is still unused collateral
         uint priceDROP = senior.calcSeniorTokenPrice()
 
-        // unused DROP amount considering current drop price
+        // max unused collateral (DROP) considering current drop price
         uint collateralChill;
         if (balanceDAI > mgr.tab()) {
             collateralChill = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
