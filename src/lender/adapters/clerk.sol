@@ -149,8 +149,7 @@ contract Clerk is Auth, Math {
         // max unused DROP amount considering current drop price
         unusedCollateralGoal;
         if (balanceDAI > mgr.tab()) {
-            unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP); // TODO : consider edge case mgrTab bigger balanceDAI
-        }
+            unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
     
         // current unused DROP amount
         uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork); // TODO fix call mng.ink()
