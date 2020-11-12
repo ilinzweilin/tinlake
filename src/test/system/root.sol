@@ -39,12 +39,6 @@ contract TestRoot is TinlakeRoot {
         LenderDeployer lD = LenderDeployer(address(lenderDeployer));
         relyContract(lD.juniorMemberlist(), usr);
         relyContract(lD.seniorMemberlist(), usr);
-
-        address poolAdmin = 0x71d9f8CFdcCEF71B59DD81AB387e523E2834F2b8;                                             
-        address memberlistAdmin = 0x97b2d32FE673af5bb322409afb6253DFD02C0567;
-        relyContract(lD.assessorAdmin(), poolAdmin);
-        relyContract(lD.juniorMemberlist(), memberlistAdmin);
-        relyContract(lD.seniorMemberlist(), memberlistAdmin);
     }
 
     function denyBorrowerAdmin(address usr) public auth {
