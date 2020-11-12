@@ -37,15 +37,14 @@ interface ERC20Like {
   
 contract Clerk is Auth, Math {
    
-    // DAI to be paid back for outstanding clerk financed loans
-    uint public expectedRevenue;
     // virtual DAI balance that was already added to the seniorAssetValue = virtual DAI balance
     uint public balanceDAI;
     // DAI that are drawn from the vault without accrued interest: required for mkr interest calculation
     uint public principalDAI;
     // DROP that are used as collatreal for already drawn DAI
     uint public collateralAtWork;
-
+    // Profit from the DROP interest accruel that can be trasferred to the junior tranche
+    uint profitJunior;
 
     address public mgr;
     address public dai;
@@ -66,6 +65,10 @@ contract Clerk is Auth, Math {
         reserve = ReserveLike(reserve_);
         nav = NAVFeedLike(nav_);
         tranche = TrancheLike(tranche_);
+    }
+
+    function validate() public {
+
     }
 
     function join(uint amountDROP) public auth {
@@ -89,38 +92,54 @@ contract Clerk is Auth, Math {
         // TODO: maybe find a better condition
         require(reserve.totalBalance() == 0, "Use DAI in reserves first");
         // make sure amountDAI does not exceed the virtual DAI balance
-        require(safeAdd(principalDAI, amountDAI) <= balanceDAI, "Add amount to senior asset first");
+        require(safeAdd(mgr.tab(), amountDAI) <= balanceDAI, "Add amount to senior asset first");
 
         principalDAI = safeAdd(principalDAI, amountDAI);
         collateralAtWork = safeAdd(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
 
-        drip();
-        expectedRevenue = safeAdd(expectedRevenue, amountDAI);
-        
         // draw dai and move to reserve
         mgr.draw(amountDAI);
         dai.approve(address(reserve), amountDAI);
         reserve.deposit(amountDAI);
     }
 
+   
     function wipe(uint amountDAI) public auth {
-        require(mgr.tab() > 0, "vault debt already repaid");
+        // I think we need to use this condition here instead: require(mgr.tab() > 0, "vault debt already repaid");
+        // In case of partial repayments there still might be some profit that needs to go to the juniors, even though the vault debt is fully repaid
+        require(collateralAtWork > 0, "vault debt already repaid");
 
-        drip();
-
-        expectedRevenue = safeDiv(expectedRevenue, amountDAI);  
         // decrease the principal amount by amountDAI without accrued interest
-        principalReturned = rdiv(amountDAI, safeAdd(ONE, tinlakeInterest);
+        collateralAtWork = safeSub(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
+        
+        
+        uint payVault;
+        if (amountDAI >= mgr.tab()) {
+            payVault = mgr.tab();
+            profitJunior = safeAdd(safeSub(amountDAI, mgr.tab()));
+        } else {
+            payVault = amountDAI;
+        }
+        
+        // transfer here & wipe rest 
+        // account for junior profit
+       
+
+        // uint principalReturned = rdiv(amountDAI, safeAdd(ONE, tinlakeInterest);
         // decrease the collateral amount based on the principal returned and weighted DROP price
-        collateralAtWork = safeSub(collateralAtWork, rdiv(principalReturned,  weightedDropPrice()));
+        // collateralAtWork = safeSub(collateralAtWork, rdiv(principalReturned,  weightedDropPrice()));
 
         require(reserve.payout(amountDAI), "not enough funds in reserve");
+
+        // wipe max of manager tab and amount DAI
         mgr.wipe(amountDAI);
     }
 
      // remove drop from mkr system
     function exit(uint drop) public auth {
-        drip();
+        // requirement rebalance senior
+        // use current price 
+        // expected revenue
         require(expectedRevenue == 0, "vault debt ha to be repaid first");
         
         // TODO decrease: balanceDAI 
@@ -153,26 +172,28 @@ contract Clerk is Auth, Math {
     }
 
 
-    // update revenue/losses of loans financed by the clerk
-    function drip() public {
-        expectedRevenue = rmul(expectedRevenue, tinlakeInterest());
+    // surplus after vault repayment. Resulting from the accrued interest of the DROP tokens 
+    function profit() public returns (uint) {
+        uint revenue = expectedRevenue();
+        if (revenue >= mgr.tab()) {
+            return safeSub(revenue, mgr.tab());
+        }
+        return 0;    
+    }
+
+    function expectedRevenue() public returns (uint) {
+        return rmul(collateralAtWork, assessor.calcSeniorTokenPrice()); 
     }
     
-    function profit() public returns (uint) {
-        drip();
-        return safeSub(expectedRevenue - mgr.tab());
-    }
-
-    // returns the current rate for the accrued intrest on the DAI drawn from the vault
-    function mkrInterest() public returns (uint) {
-        // devide vault debt by principalDAI
-        return safeDiv(mgr.tab(), pincipalDAI);
-    }
-
     // returns the current senior rate for the accrued intrest on the DROP tokens locked in the vault
     function tinlakeInterest() public returns (uint) {
         return safeDiv(collateralAtWork, assessor.calcSeniorTokenPrice()), principalDAI);
     }
+
+    Martin
+    mgr.ink() * senior.calcSeniorTokenPrice() = balanceDAI + collateralAtWork * senior.calcSeniorTokenPrice() - mgr.tab()
+    THIS ONE IS THE BEST
+
     
     // returns the weigthed price per DROP used as Collateral in the Vault
     function weightedDropPrice() public returns (uint) {
