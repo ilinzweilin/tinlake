@@ -97,8 +97,10 @@ contract Clerk is Auth, Math {
     function wipe(uint amountDAI) public auth {
         // I think we need to use this condition here instead: require(mgr.tab() > 0, "vault debt already repaid");
         require(collateralAtWork > 0, "no collateralAtWork left");
+        uint amountDROP = rdiv(amountDAI, assessor.calcSeniorTokenPrice());
+        require(collateralAtWork >= amountDROP, "DAI amount too high");
 
-        collateralAtWork = safeSub(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));  
+        collateralAtWork = safeSub(collateralAtWork, amountDROP);
         // payVault should be max debtVault, the rest goes towards junior profit
         uint payVault = amountDAI;
         if (amountDAI > mgr.tab()) {
@@ -114,11 +116,10 @@ contract Clerk is Auth, Math {
      // remove drop from mkr system
     function exit(uint amountDROP) public auth {
         require(mgr.tab() == 0, "vault debt has to be repaid first");
-
         uint amountDAI = rmul(amountDROP, assessor.calcSeniorTokenPrice());
         require(amountDAI <= balanceDAI, "DROP amount too high");
-        balanceDAI = safeSub(balanceDAI, amountDAI);
 
+        balanceDAI = safeSub(balanceDAI, amountDAI);
         updateSeniorValue(-amountDAI);
         mgr.exit(amountDROP);
         drop.burn(address(this), amountDROP); // TODO: fix impl
