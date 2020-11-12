@@ -44,7 +44,7 @@ contract Clerk is Auth, Math {
     // DROP that are used as collatreal for already drawn DAI
     uint public collateralAtWork;
     // Profit from the DROP interest accruel that can be trasferred to the junior tranche
-    uint profitJunior;
+    uint profitJunior; // I don't even think we need to track this value. It is bascially the DAI balance of the contract
 
     address public mgr;
     address public dai;
@@ -106,33 +106,22 @@ contract Clerk is Auth, Math {
    
     function wipe(uint amountDAI) public auth {
         // I think we need to use this condition here instead: require(mgr.tab() > 0, "vault debt already repaid");
-        // In case of partial repayments there still might be some profit that needs to go to the juniors, even though the vault debt is fully repaid
-        require(collateralAtWork > 0, "vault debt already repaid");
+        require(collateralAtWork > 0, "no collateralAtWork left");
 
-        // decrease the principal amount by amountDAI without accrued interest
         collateralAtWork = safeSub(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
         
-        
+        // payVault should be max debtVault, the rest goes towards junior profit
         uint payVault;
-        if (amountDAI >= mgr.tab()) {
+        if (amountDAI > mgr.tab()) {
             payVault = mgr.tab();
             profitJunior = safeAdd(safeSub(amountDAI, mgr.tab()));
         } else {
             payVault = amountDAI;
         }
         
-        // transfer here & wipe rest 
-        // account for junior profit
-       
-
-        // uint principalReturned = rdiv(amountDAI, safeAdd(ONE, tinlakeInterest);
-        // decrease the collateral amount based on the principal returned and weighted DROP price
-        // collateralAtWork = safeSub(collateralAtWork, rdiv(principalReturned,  weightedDropPrice()));
-
         require(reserve.payout(amountDAI), "not enough funds in reserve");
-
-        // wipe max of manager tab and amount DAI
-        mgr.wipe(amountDAI);
+        mgr.wipe(payVault);
+        // todo: we could call rebalance junior here if profitJunior > 0
     }
 
      // remove drop from mkr system
@@ -162,44 +151,25 @@ contract Clerk is Auth, Math {
         drop.burn(address(this), dropToBurn); // TODO: fix impl
     }
 
-    function rebalanceJunior() public {
-        require(mgr.tab() == 0, "vault loan has to be paid back first");
-        uint profit = profit();
-        require(profit > 0, "no profit to give to junior")
-        
-        uint expectedRevenue = sub(expectedRevenue, profit);
-        updateSeniorValue(-profit);
-    }
-
-
-    // surplus after vault repayment. Resulting from the accrued interest of the DROP tokens 
-    function profit() public returns (uint) {
-        uint revenue = expectedRevenue();
-        if (revenue >= mgr.tab()) {
-            return safeSub(revenue, mgr.tab());
-        }
-        return 0;    
-    }
-
-    function expectedRevenue() public returns (uint) {
-        return rmul(collateralAtWork, assessor.calcSeniorTokenPrice()); 
-    }
-    
-    // returns the current senior rate for the accrued intrest on the DROP tokens locked in the vault
-    function tinlakeInterest() public returns (uint) {
-        return safeDiv(collateralAtWork, assessor.calcSeniorTokenPrice()), principalDAI);
-    }
-
     Martin
     mgr.ink() * senior.calcSeniorTokenPrice() = balanceDAI + collateralAtWork * senior.calcSeniorTokenPrice() - mgr.tab()
     THIS ONE IS THE BEST
 
-    
-    // returns the weigthed price per DROP used as Collateral in the Vault
-    function weightedDropPrice() public returns (uint) {
-        return safeDiv(principalDAI, collateralAtWork);
+
+    function rebalanceJunior() public {
+        require(mgr.tab() == 0, "vault loan has to be paid back first");
+        require(profitJunior > 0, "no profit to give to junior")
+
+        // transfer all ythe junior profit or up to dai balance of the contract
+        uint payJunior = profitJunior;
+        if (dai.balanceOf(address(this)) < profitJunior) {
+            payJunior = dai.balanceOf(address(this));
+        }
+        uint profitJunior = safeSub(profitJunior, payJunior);
+        updateSeniorValue(-payJunior);
     }
 
+    
     function updateSeniorValue(int amount) internal  {
         uint redeem;
         uint supply;
