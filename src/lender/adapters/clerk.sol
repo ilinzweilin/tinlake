@@ -151,7 +151,7 @@ contract Clerk is Auth, Math {
         if (balanceDAI > mgr.tab()) {
             unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
         }
-        burnAmount = safeSub(safeSub(mgr.ink(), collateralAtWork), unusedCollateralGoal); // TODO: fix mgr.ink
+        uint burnAmount = safeSub(safeSub(mgr.ink(), collateralAtWork), unusedCollateralGoal); // TODO: fix mgr.ink
     
         mgr.exit(burnAmount);
         drop.burn(address(this), burnAmount); // TODO: fix impl
