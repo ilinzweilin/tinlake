@@ -147,7 +147,7 @@ contract Clerk is Auth, Math {
         uint priceDROP = senior.calcSeniorTokenPrice()
 
         // max unused DROP amount considering current drop price
-        unusedCollateralGoal;
+        uint unusedCollateralGoal;
         if (balanceDAI > mgr.tab()) {
             unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
         }
