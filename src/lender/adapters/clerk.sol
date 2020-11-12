@@ -85,7 +85,6 @@ contract Clerk is Auth, Math {
         // make sure amountDAI does not exceed the virtual DAI balance
         require(safeAdd(mgr.tab(), amountDAI) <= balanceDAI, "Add amount to senior asset first");
 
-        // principalDAI = safeAdd(principalDAI, amountDAI);
         collateralAtWork = safeAdd(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
 
         // draw dai and move to reserve
@@ -146,13 +145,13 @@ contract Clerk is Auth, Math {
         // todo: discuss if it should be allowed to burn if mgr.debt() > balance, but there is still unused collateral
         uint priceDROP = senior.calcSeniorTokenPrice()
 
-        // DROP that should max not be used as collateral consideirng current DROP token price
+        // max unused DROP amount considering current drop price
         unusedCollateralGoal;
         if (balanceDAI > mgr.tab()) {
             unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP); // TODO : consider edge case mgrTab bigger balanceDAI
         }
     
-        // DROP that are currently not used as collateral (not at work)
+        // current unused DROP amount
         uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork); // TODO fix call mng.ink()
         uint burnAmount;
         if (unusedCollateral >= unusedCollateralGoal ) {
@@ -162,7 +161,6 @@ contract Clerk is Auth, Math {
         mgr.exit(burnAmount);
         drop.burn(address(this), burnAmount); // TODO: fix impl
     }
-
 
     // TODO: implement
     function validate() internal {
