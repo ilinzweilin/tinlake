@@ -115,7 +115,7 @@ contract Clerk is Auth, Math {
     function exit(uint amountDROP) public auth {
         require(mgr.tab() == 0, "vault debt has to be repaid first");
 
-        uint amountDAI = rmul(amountDROP,  assessor.calcSeniorTokenPrice());
+        uint amountDAI = rmul(amountDROP, assessor.calcSeniorTokenPrice());
         require(amountDAI <= balanceDAI, "DROP amount too high");
         balanceDAI = safeSub(balanceDAI, amountDAI);
 
