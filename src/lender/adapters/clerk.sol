@@ -39,8 +39,6 @@ contract Clerk is Auth, Math {
    
     // virtual DAI balance that was already added to the seniorAssetValue = virtual DAI balance
     uint public balanceDAI;
-    // DAI that are drawn from the vault without accrued interest: required for mkr interest calculation
-    uint public principalDAI;
     // DROP that are used as collatreal for already drawn DAI
     uint public collateralAtWork;
     // Profit from the DROP interest accruel that can be trasferred to the junior tranche
@@ -67,34 +65,27 @@ contract Clerk is Auth, Math {
         tranche = TrancheLike(tranche_);
     }
 
-    function validate() public {
-
-    }
-
     function join(uint amountDROP) public auth {
         // calculate DAI amount that can be minted considering current DROP token price
         uint amountDAI = rmul(amountDROP, assessor.calcSeniorTokenPrice());
-
-        // TODO: check if the injected DAI liquidity could potentially violate the pool constraints
-
+        validate(amountDAI);
         // increase balanceDAI, so that the amount can be drawn
         balanceDAI = safeAdd(balanceDAI, amountDAI);
-        
         // increase seniorAssetValue by amountDAI to keep the DROP token price constant 
         updateSeniorValue(amountDAI);
         
         // mint amountDROP & lock in vault
         tranche.mint(address(this), amountDROP);
-        mgr.join(d);
+        mgr.join(amountDROP);
     }
 
     function draw(uint amountDAI) public auth {
         // TODO: maybe find a better condition
-        require(reserve.totalBalance() == 0, "Use DAI in reserves first");
+        require(reserve.totalBalance() == 0, "Use DAI in reserve first");
         // make sure amountDAI does not exceed the virtual DAI balance
         require(safeAdd(mgr.tab(), amountDAI) <= balanceDAI, "Add amount to senior asset first");
 
-        principalDAI = safeAdd(principalDAI, amountDAI);
+        // principalDAI = safeAdd(principalDAI, amountDAI);
         collateralAtWork = safeAdd(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
 
         // draw dai and move to reserve
@@ -108,67 +99,74 @@ contract Clerk is Auth, Math {
         // I think we need to use this condition here instead: require(mgr.tab() > 0, "vault debt already repaid");
         require(collateralAtWork > 0, "no collateralAtWork left");
 
-        collateralAtWork = safeSub(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
-        
+        collateralAtWork = safeSub(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));  
         // payVault should be max debtVault, the rest goes towards junior profit
-        uint payVault;
+        uint payVault = amountDAI;
         if (amountDAI > mgr.tab()) {
             payVault = mgr.tab();
             profitJunior = safeAdd(safeSub(amountDAI, mgr.tab()));
-        } else {
-            payVault = amountDAI;
         }
-        
+
         require(reserve.payout(amountDAI), "not enough funds in reserve");
         mgr.wipe(payVault);
         // todo: we could call rebalance junior here if profitJunior > 0
     }
 
      // remove drop from mkr system
-    function exit(uint drop) public auth {
-        // requirement rebalance senior
-        // use current price 
-        // expected revenue
-        require(expectedRevenue == 0, "vault debt ha to be repaid first");
-        
-        // TODO decrease: balanceDAI 
-        updateSeniorValue(-drop);
-        mgr.exit(drop);
-        drop.burn(address(this), drop); // TODO: fix impl
+    function exit(uint amountDROP) public auth {
+        require(mgr.tab() == 0, "vault debt has to be repaid first");
+
+        uint amountDAI = rmul(amountDROP,  assessor.calcSeniorTokenPrice());
+        require(amountDAI <= balanceDAI, "DROP amount too high");
+        balanceDAI = safeSub(balanceDAI, amountDAI);
+
+        updateSeniorValue(-amountDAI);
+        mgr.exit(amountDROP);
+        drop.burn(address(this), amountDROP); // TODO: fix impl
     }
-
-    // principal + DAI value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
-    // burn DROP tokens worth of accrued tinlake interest to prevent senior dilution
-    function rebalanceSenior() public {
-        uint priceDrop = senior.calcSeniorTokenPrice()
-        // DROP currently not used as collateral
-        uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork);
-        uint currentBalanceDAI = safeAdd(principalDAI, rmul(unusedCollateral, senior.calcSeniorTokenPrice());   // TODO: fix call: vat -> urn -> ink
-        uint balanceSurplusDAI = safeSub(currentBalanceDAI, balanceDAI);
-        uint dropToBurn = rdiv(balanceSurplusDAI, priceDrop);
-
-        mgr.exit(dropToBurn);
-        drop.burn(address(this), dropToBurn); // TODO: fix impl
-    }
-
-    Martin
-    mgr.ink() * senior.calcSeniorTokenPrice() = balanceDAI + collateralAtWork * senior.calcSeniorTokenPrice() - mgr.tab()
-    THIS ONE IS THE BEST
-
 
     function rebalanceJunior() public {
         require(mgr.tab() == 0, "vault loan has to be paid back first");
         require(profitJunior > 0, "no profit to give to junior")
 
-        // transfer all ythe junior profit or up to dai balance of the contract
+        // transfer entire junior profit if possible 
         uint payJunior = profitJunior;
         if (dai.balanceOf(address(this)) < profitJunior) {
             payJunior = dai.balanceOf(address(this));
         }
+
         uint profitJunior = safeSub(profitJunior, payJunior);
         updateSeniorValue(-payJunior);
     }
 
+    // principal + DAI value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
+    // balanceDAI =  mgr.tab() + (mgr.ink() - collateralAtWork) * senior.calcSeniorTokenPrice()
+    // burn DROP tokens worth of accrued tinlake interest to prevent senior dilution
+    function rebalanceSenior() public {
+        // todo: discuss if it should be allowed to burn if mgr.debt() > balance, but there is still unused collateral
+        uint priceDROP = senior.calcSeniorTokenPrice()
+
+        // DROP that should max not be used as collateral consideirng current DROP token price
+        unusedCollateralGoal;
+        if (balanceDAI > mgr.tab()) {
+            unusedCollateralGoal = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP); // TODO : consider edge case mgrTab bigger balanceDAI
+        }
+    
+        // DROP that are currently not used as collateral (not at work)
+        uint unusedCollateral = safeSub(mgr.ink(), collateralAtWork); // TODO fix call mng.ink()
+        uint burnAmount;
+        if (unusedCollateral >= unusedCollateralGoal ) {
+            burnAmount = safeSub(unusedCollateral, unusedCollateralGoal)
+        }
+
+        mgr.exit(burnAmount);
+        drop.burn(address(this), burnAmount); // TODO: fix impl
+    }
+
+
+    // TODO: implement
+    function validate() internal {
+    }
     
     function updateSeniorValue(int amount) internal  {
         uint redeem;
