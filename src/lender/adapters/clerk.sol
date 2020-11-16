@@ -42,7 +42,7 @@ contract Clerk is Auth, Math {
     // DROP that are used as collatreal for already drawn DAI
     uint public collateralAtWork;
     // Profit from the DROP interest accruel that can be trasferred to the junior tranche
-    uint profitJunior; // I don't even think we need to track this value. It is bascially the DAI balance of the contract
+    uint profitJunior; 
 
     address public mgr;
     address public dai;
@@ -108,8 +108,11 @@ contract Clerk is Auth, Math {
             profitJunior = safeAdd(safeSub(amountDAI, mgr.tab()));
         }
 
-        require(reserve.payout(amountDAI), "not enough funds in reserve");
-        mgr.wipe(payVault);
+        if (payVault > 0) {
+            mgr.wipe(payVault);
+            require(reserve.payout(payVault), "not enough funds in reserve");
+        }
+       
         // todo: we could call rebalance junior here if profitJunior > 0
     }
 
@@ -134,7 +137,7 @@ contract Clerk is Auth, Math {
         if (dai.balanceOf(address(this)) < profitJunior) {
             payJunior = dai.balanceOf(address(this));
         }
-
+        
         uint profitJunior = safeSub(profitJunior, payJunior);
         updateSeniorValue(-payJunior);
     }
