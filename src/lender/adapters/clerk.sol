@@ -4,164 +4,196 @@ pragma solidity >=0.5.15. <0.6.0;
 import "tinlake-auth/auth.sol";
 import "tinlake-math/math.sol";
 
+interface ManagerLike {
+    // collateral value locked in the vault
+    function ink() external returns(uint);
+    // collateral debt 
+    function tab() external returns(uint);
+    // 1 - collateralization buffer 
+    function mat() external returns(uint);
+    // put collateral into vault
+    function join(uint amountDROP) external;
+    // draw DAi from vault
+    function draw(uint amountDAI) external;
+    // repay vault debt
+    function wipe(uint amountDAI) external;
+    // remove collateral from vault
+    function exit(uint amountDROP) external;
+}
 
 interface AssessorLike {
     function calcSeniorTokenPrice() external view returns(uint);
-    function calcSeniorAssetValue(uint seniorDebt, uint seniorBalance) public pure returns(uint);
+    function calcSeniorAssetValue(uint seniorDebt, uint seniorBalance) external pure returns(uint);
     function changeSeniorAsset(uint seniorRatio, uint seniorSupply, uint seniorRedeem) external;
+    function seniorDebt() external returns(uint);
+    function seniorBalance() external returns(uint);
 }
 
-interface CordinatorLike {
-    function calcSeniorAssetValue(uint seniorRedeem, uint seniorSupply, uint currSeniorAsset, uint reserve_, uint nav_) public pure returns(uint) ;
-    function calcSeniorRatio(uint seniorAsset, uint NAV, uint reserve_) public pure returns(uint);
+interface CoordinatorLike {
+    function calcSeniorAssetValue(uint seniorRedeem, uint seniorSupply, uint currSeniorAsset, uint reserve_, uint nav_) external pure returns(uint) ;
+    function calcSeniorRatio(uint seniorAsset, uint NAV, uint reserve_) external pure returns(uint);
+    function validate(uint seniorRedeem, uint juniorRedeem, uint seniorSupply, uint juniorSupply) external view returns(int);
+    function submissionPeriod() external returns(bool);
 }
 
 interface ReserveLike {
     function totalBalance() external view returns(uint);
-    function deposit(uint daiAmount) public;
-    function payout(uint currencyAmount) public;
+    function deposit(uint daiAmount) external;
+    function payout(uint currencyAmount) external;
 }
 
 interface NAVFeedLike {
-    // TODO: check what better to use approx NAV or current NAV
     function currentNAV() external view returns(uint);
 }
 
 interface TrancheLike {
-    function mint(address usr, uint amount) public;
+    function mint(address usr, uint amount) external;
+    function token() external returns(address);
+
 }
 
 interface ERC20Like {
     function burn(address, uint) external;
+    function balanceOf(address) external view returns (uint);
+    function transferFrom(address, address, uint) external returns (bool);
+    function approve(address usr, uint amount) external;
 }
+
   
 contract Clerk is Auth, Math {
    
     // virtual DAI balance that was already added to the seniorAssetValue = virtual DAI balance
     uint public balanceDAI;
-    // DROP that are used as collatreal for already drawn DAI
-    uint public collateralAtWork;
-    // Profit from the DROP interest accruel that can be trasferred to the junior tranche
-    uint profitJunior; 
-
-    address public mgr;
-    address public dai;
 
     AssessorLike assessor;
     CoordinatorLike coordinator;
     ReserveLike reserve;
     NAVFeedLike nav;
     TrancheLike tranche;
+    ManagerLike mgr;
+    ERC20Like dai;
+    ERC20Like collateral;
+
+    // adapter function scan only be active if the tinlake pool is not in submission state
+    modifier active() { (coordinator.submissionPeriod() == false); _; }
 
     constructor(address mgr_, address dai_, address assessor_, address coordinator_, address reserve_, address nav_, address tranche_) {
         wards[msg.sender] = 1;
-        dai = dai_;
-        mgr = mgr_;
 
+        mgr =  ManagerLike(mgr);
         assessor = AssessorLike(assessor_);
         coordinator = CoordinatorLike(coordinator_);
         reserve = ReserveLike(reserve_);
         nav = NAVFeedLike(nav_);
         tranche = TrancheLike(tranche_);
+        collateral = ERC20Like(tranche.token());
+        dai =  ERC20Like(dai_);
     }
 
-    function join(uint amountDROP) public auth {
-        // calculate DAI amount that can be minted considering current DROP token price
-        uint amountDAI = rmul(amountDROP, assessor.calcSeniorTokenPrice());
+    // increase MKR creadit line and add the amount to the SeniorAssetValue (--> virtual balance, as funds will be transferred to the reserve in draw)
+    function rise(uint amountDAI) public auth active {
+        // add extra collateral buffer on top of DAI amount
+        amountDAI = rdiv(amountDAI, mgr.mat());
+        // calculate DROP amount considering current DROP token price
+        uint amountDROP = rdiv(amountDAI, assessor.calcSeniorTokenPrice());
+        // check if the additional senior capital would break the pool constraint
         validate(amountDAI);
         // increase balanceDAI, so that the amount can be drawn
         balanceDAI = safeAdd(balanceDAI, amountDAI);
         // increase seniorAssetValue by amountDAI to keep the DROP token price constant 
-        updateSeniorValue(amountDAI);
-        
-        // mint amountDROP & lock in vault
+        updateSeniorValue(int(amountDAI));
+        // mint amountDROP & store in clerk
         tranche.mint(address(this), amountDROP);
-        mgr.join(amountDROP);
     }
 
-    function draw(uint amountDAI) public auth {
-        // TODO: maybe find a better condition
-        require(reserve.totalBalance() == 0, "Use DAI in reserve first");
-        // make sure amountDAI does not exceed the virtual DAI balance
-        require(safeAdd(mgr.tab(), amountDAI) <= balanceDAI, "Add amount to senior asset first");
+    // join collateral & draw DAI from vault
+    function draw(uint amountDAI) public auth active {
+        // make sure amountDAI and vault debt do not exceed the credit line normalized by the collateral buffer ratio
+        require(safeAdd(mgr.tab(), amountDAI) <= rmul(balanceDAI, mgr.mat()), "rise credit line first");
+    
+        // compute collateral amount required to draw the DAI
+        // collateral buffer needs to be added to the DAI amount
+        uint requiredCollateral = rdiv(safeDiv(amountDAI, mgr.mat()), assessor.calcSeniorTokenPrice());
 
-        collateralAtWork = safeAdd(collateralAtWork, rdiv(amountDAI, assessor.calcSeniorTokenPrice()));
+        // theoretically not possible, that clerk has not enough collateral as it would require the drop price to decrease
+        // which would already trigger soft liquidation by the manager
+        // so condition was only added to catch possible rounding errors 
+        require((collateral.balanceOf(address(this)) >= requiredCollateral), "clerk does not have enough collateral");
 
+        // put collateral into the vault
+        mgr.join(requiredCollateral);
         // draw dai and move to reserve
         mgr.draw(amountDAI);
         dai.approve(address(reserve), amountDAI);
         reserve.deposit(amountDAI);
     }
 
-   
-    function wipe(uint amountDAI) public auth {
-        // I think we need to use this condition here instead: require(mgr.tab() > 0, "vault debt already repaid");
-        require(collateralAtWork > 0, "no collateralAtWork left");
-        uint amountDROP = rdiv(amountDAI, assessor.calcSeniorTokenPrice());
-        require(collateralAtWork >= amountDROP, "DAI amount too high");
+    // repay vault debt 
+    function wipe(uint amountDAI) public auth active {
+        require((mgr.tab() > 0), "vault debt already repqaid");
 
-        collateralAtWork = safeSub(collateralAtWork, amountDROP);
-        // payVault should be max debtVault, the rest goes towards junior profit
         uint payVault = amountDAI;
+        // repay max vault debt
         if (amountDAI > mgr.tab()) {
             payVault = mgr.tab();
-            profitJunior = safeAdd(safeSub(amountDAI, mgr.tab()));
         }
 
-        if (payVault > 0) {
-            mgr.wipe(payVault);
-            require(reserve.payout(payVault), "not enough funds in reserve");
-        }
-       
-        // todo: we could call rebalance junior here if profitJunior > 0
+        // drop amount to wipe including the collateral buffer 
+        uint amountDROP = rdiv(rdiv(payVault, assessor.calcSeniorTokenPrice()), mgr.mat());
+        // transfer DAI from reserve and wipe the vault debt
+        reserve.payout(payVault);
+        mgr.wipe(payVault); 
+        // remove collateral for the repaid drop amount
+        mgr.exit(amountDROP); // todo: if we store collateralAtWork variable, we can call exit only once in harvest
+        // call harvest to grant profits to junior
+        harvest();        
     }
 
-     // remove drop from mkr system
-    function exit(uint amountDROP) public auth {
-        require(mgr.tab() == 0, "vault debt has to be repaid first");
+    // give profit to junior tranche
+    function harvest() public active {
+        require((mgr.ink() > 0), "no profit to harvest");
+
+        // calc normalized collateral value dinomintaed in DAI
+        uint amountDAI = rmul(rmul(mgr.ink(), assessor.calcSeniorTokenPrice()), mgr.mat());
+        // substract remaining vault debt inclusing collateral buffer from the collateral value in the vault denomintaed in DAI
+        uint profit = safeSub(amountDAI, mgr.tab());
+        // move profit towards junior tranche
+        updateSeniorValue(int(-profit));
+        // remove collateral from the vault that has already been moved to junior
+        mgr.exit(rdiv(profit, assessor.calcSeniorTokenPrice()));
+    }
+
+    // decrease Maker credit Line by burning the drop and decreasing the SeniorAssetValue
+    function sink(uint amountDROP) public auth active {
+        require(mgr.tab() == 0);
+        // make sure senior is rebalanced
+        rebalance();
+        // calc amount that the creditline should be decreased by
         uint amountDAI = rmul(amountDROP, assessor.calcSeniorTokenPrice());
         require(amountDAI <= balanceDAI, "DROP amount too high");
 
         balanceDAI = safeSub(balanceDAI, amountDAI);
-        updateSeniorValue(-amountDAI);
-        mgr.exit(amountDROP);
-        drop.burn(address(this), amountDROP); // TODO: fix impl
+        updateSeniorValue(int(-amountDAI));
+        collateral.burn(address(this), amountDROP); // TODO: fix impl
     }
 
-    function rebalanceJunior() public {
-        require(mgr.tab() == 0, "vault loan has to be paid back first");
-        require(profitJunior > 0, "no profit to give to junior")
-
-        // transfer entire junior profit if possible 
-        uint payJunior = profitJunior;
-        if (dai.balanceOf(address(this)) < profitJunior) {
-            payJunior = dai.balanceOf(address(this));
+    // prevent senior dilution by burning DROP worth the accrued interest of unused collateral
+    function rebalance() public active {
+        // remaining DAI value incl. collateralization ratio that still can be drawn
+        uint remainingBalance = 0;
+        // vault debt normalized by the extra collateralization ratio
+        uint tabNorm = rdiv(mgr.tab(), mgr.mat());
+        if (balanceDAI > tabNorm) {
+             remainingBalance = safeSub(balanceDAI, tabNorm);
         }
-        
-        uint profitJunior = safeSub(profitJunior, payJunior);
-        updateSeniorValue(-payJunior);
+        // burnamount = difference between drop held by clerk and the collateral required to cover the remaining balance
+        uint burnAmount = safeDiv(collateral.balanceOf(address(this)), rdiv(remainingBalance, assessor.calcSeniorTokenPrice()));
+        collateral.burn(address(this), burnAmount); 
     }
 
-    // vault debt + value of collateral that is not put to work should not exceed balanceDAI => blanceDAI is constant
-    // balanceDAI =  mgr.tab() + (mgr.ink() - collateralAtWork) * senior.calcSeniorTokenPrice()
-    // burn DROP tokens worth of accrued tinlake interest to prevent senior dilution
-    function rebalanceSenior() public {
-        // todo: discuss if it should be allowed to burn if mgr.debt() > balance, but there is still unused collateral
-        uint priceDROP = senior.calcSeniorTokenPrice()
-
-        // max unused collateral (DROP) considering current drop price
-        uint collateralChill;
-        if (balanceDAI > mgr.tab()) {
-            collateralChill = rdiv(safeSub(balanceDAI, mgr.tab()), priceDROP);
-        }
-        uint burnAmount = safeSub(safeSub(mgr.ink(), collateralAtWork), collateralChill); // TODO: fix mgr.ink
-    
-        mgr.exit(burnAmount);
-        drop.burn(address(this), burnAmount); // TODO: fix impl
-    }
-
-    // TODO: implement
-    function validate() internal {
+    // checks if the Maker credit line increase could violate the pool constraints
+    function validate(uint amountDAI) internal {
+        require((coordinator.validate(0, 0, amountDAI, 0) == 0), "supply not possible, pool constraints violated");
     }
     
     function updateSeniorValue(int amount) internal  {
@@ -170,14 +202,14 @@ contract Clerk is Auth, Math {
 
         if (amount > 0) {
             redeem = 0;
-            supply = amount;
+            supply = uint(amount);
         } else {
-            redeem = amount;
+            redeem = uint(amount*-1);
             supply =  0;
         }
 
         uint currenNav = nav.currentNAV();
-        uint newSeniorAsset = coordiator.calcSeniorAssetValue(redeem, supply,
+        uint newSeniorAsset = coordinator.calcSeniorAssetValue(redeem, supply,
             assessor.calcSeniorAssetValue(assessor.seniorDebt(), assessor.seniorBalance()), reserve.totalBalance(), currenNav);
         uint newSeniorRatio = coordinator.calcSeniorRatio(newSeniorAsset, currenNav, reserve.totalBalance());
         assessor.changeSeniorAsset(newSeniorRatio, supply, redeem);

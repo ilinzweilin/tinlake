@@ -18,7 +18,7 @@ pragma solidity >=0.5.15 <0.6.0;
 import "ds-test/test.sol";
 
 import "../../test/mock/shelf.sol";
-import "../../test/mock/distributor.sol";
+import "../../test/mock/reserve.sol";
 import "../../test/mock/nft.sol";
 import "../../test/mock/pile.sol";
 
@@ -28,7 +28,7 @@ import "../collector.sol";
 contract CollectorTest is DSTest {
     ShelfMock       shelf;
     PileMock        pile;
-    DistributorMock distributor;
+    ReserveMock reserve;
     NFTMock         nft;
 
     Collector    collector;
@@ -37,10 +37,10 @@ contract CollectorTest is DSTest {
         nft = new NFTMock();
         shelf = new ShelfMock();
         pile = new PileMock();
-        distributor = new DistributorMock();
+        reserve = new ReserveMock();
 
         collector = new Collector(address(shelf), address(pile), address(nft));
-        collector.depend("distributor", address(distributor));
+        collector.depend("reserve", address(reserve));
     }
 
     function collect(uint loan, uint tokenId, uint price) internal {

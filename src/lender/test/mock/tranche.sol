@@ -17,14 +17,18 @@ pragma solidity >=0.5.15 <0.6.0;
 
 import "ds-test/test.sol";
 import "../../../test/mock/mock.sol";
+import "../../../test/simple/token.sol";
 import "tinlake-auth/auth.sol";
 
 contract TrancheMock is Mock, Auth, DSTest {
     uint epochTotalSupply;
     uint epochTotalRedeem;
 
+    SimpleToken public currency;
+
     constructor() public {
         wards[msg.sender] = 1;
+        currency = new SimpleToken("TKN", "TKN");
     }
 
     function setEpochReturn(uint totalSupply_, uint totalRedeem_) public {
