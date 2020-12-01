@@ -49,7 +49,6 @@ interface NAVFeedLike {
 interface TrancheLike {
     function mint(address usr, uint amount) external;
     function token() external returns(address);
-
 }
 
 interface ERC20Like {
@@ -62,8 +61,10 @@ interface ERC20Like {
   
 contract Clerk is Auth, Math {
    
-    // virtual DAI balance that was already added to the seniorAssetValue = virtual DAI balance
-    uint public balanceDAI;
+    // max amount of DAI that can be brawn from MKR
+    uint public creditLine;
+    // remaing amount of DAI that can be brrowed from MKR
+    uint creditLeft;
 
     AssessorLike assessor;
     CoordinatorLike coordinator;
@@ -90,18 +91,19 @@ contract Clerk is Auth, Math {
         dai =  ERC20Like(dai_);
     }
 
-    // increase MKR creadit line and add the amount to the SeniorAssetValue (--> virtual balance, as funds will be transferred to the reserve in draw)
-    function rise(uint amountDAI) public auth active {
+    // increase MKR creadit line by amountDAI
+    function raise(uint amountDAI) public auth active {
         // add extra collateral buffer on top of DAI amount
-        amountDAI = rdiv(amountDAI, mgr.mat());
+        amountDAIBuffered = rdiv(amountDAI, mgr.mat());
         // calculate DROP amount considering current DROP token price
-        uint amountDROP = rdiv(amountDAI, assessor.calcSeniorTokenPrice());
-        // check if the additional senior capital would break the pool constraint
-        validate(amountDAI);
-        // increase balanceDAI, so that the amount can be drawn
-        balanceDAI = safeAdd(balanceDAI, amountDAI);
-        // increase seniorAssetValue by amountDAI to keep the DROP token price constant 
-        updateSeniorValue(int(amountDAI));
+        uint amountDROP = rdiv(amountDAIBuffered, assessor.calcSeniorTokenPrice());
+        // check if the new creditline would break the pool constraints
+        validate(amountDAIBuffered);
+        // increase MKR crediline by amountDAI
+        creditLine = safeAdd(creditLine, amountDAI);
+        remainingCredit = safeAdd(remainingCredit, amountDAI);
+        // increase seniorAssetValue by amountDAIBufferedto keep the DROP token price constant 
+        updateSeniorValue(int(amountDAIBuffered));
         // mint amountDROP & store in clerk
         tranche.mint(address(this), amountDROP);
     }
@@ -109,7 +111,7 @@ contract Clerk is Auth, Math {
     // join collateral & draw DAI from vault
     function draw(uint amountDAI) public auth active {
         // make sure amountDAI and vault debt do not exceed the credit line normalized by the collateral buffer ratio
-        require(safeAdd(mgr.tab(), amountDAI) <= rmul(balanceDAI, mgr.mat()), "rise credit line first");
+        require(safeAdd(mgr.tab(), amountDAI) <= rmul(creditLine, mgr.mat()), "rise credit line first");
     
         // compute collateral amount required to draw the DAI
         // collateral buffer needs to be added to the DAI amount
@@ -170,9 +172,9 @@ contract Clerk is Auth, Math {
         rebalance();
         // calc amount that the creditline should be decreased by
         uint amountDAI = rmul(amountDROP, assessor.calcSeniorTokenPrice());
-        require(amountDAI <= balanceDAI, "DROP amount too high");
+        require(amountDAI <= creditLine, "DROP amount too high");
 
-        balanceDAI = safeSub(balanceDAI, amountDAI);
+        creditLine = safeSub(creditLine, amountDAI);
         updateSeniorValue(int(-amountDAI));
         collateral.burn(address(this), amountDROP); // TODO: fix impl
     }
@@ -183,8 +185,8 @@ contract Clerk is Auth, Math {
         uint remainingBalance = 0;
         // vault debt normalized by the extra collateralization ratio
         uint tabNorm = rdiv(mgr.tab(), mgr.mat());
-        if (balanceDAI > tabNorm) {
-             remainingBalance = safeSub(balanceDAI, tabNorm);
+        if (creditLine > tabNorm) {
+             remainingBalance = safeSub(creditLine, tabNorm);
         }
         // burnamount = difference between drop held by clerk and the collateral required to cover the remaining balance
         uint burnAmount = safeDiv(collateral.balanceOf(address(this)), rdiv(remainingBalance, assessor.calcSeniorTokenPrice()));
@@ -214,4 +216,11 @@ contract Clerk is Auth, Math {
         uint newSeniorRatio = coordinator.calcSeniorRatio(newSeniorAsset, currenNav, reserve.totalBalance());
         assessor.changeSeniorAsset(newSeniorRatio, supply, redeem);
     }
-}
+
+    function juniorProfit() public view returns(uint) {
+
+    }
+
+    function seniorProfit() public view returns(uint) {
+   
+    }

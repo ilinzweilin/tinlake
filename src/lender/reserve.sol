@@ -28,12 +28,18 @@ contract AssessorLike {
     function borrowUpdate(uint amount) public;
 }
 
+interface ClerkLike {
+    function remainingCredit() external view returns(uint);
+}
+
 // The reserve keeps track of the currency and the bookkeeping
 // of the total balance
 contract Reserve is Math, Auth {
     ERC20Like public currency;
     ShelfLike public shelf;
     AssessorLike public assessor;
+    
+    clerkLike public clerk;
 
     // currency available for borrowing new loans
     // currency available for borrowing new loans
@@ -63,11 +69,14 @@ contract Reserve is Math, Auth {
             currency = ERC20Like(addr);
         } else if (contractName == "assessor") {
             assessor = AssessorLike(addr);
+        } else if (contractName == "clerk") {
+            clerk = AssessorLike(addr);
         } else revert();
     }
 
     function totalBalance() public view returns (uint) {
-        return balance_;
+        // todo
+        return safeAdd(balance_, clerk.remainingCredit());
     }
 
     // deposits currency in the the reserve

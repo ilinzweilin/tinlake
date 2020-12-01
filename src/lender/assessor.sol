@@ -32,6 +32,11 @@ interface ReserveLike {
     function totalBalance() external view returns(uint);
 }
 
+interface ClerkLike {
+    function juniorProfit() external view returns(uint);
+    function seniorProfit() external view returns(uint);
+}
+
 contract Assessor is Auth, FixedPoint, Interest {
     // senior ratio from the last epoch executed
     Fixed27        public seniorRatio;
@@ -58,6 +63,7 @@ contract Assessor is Auth, FixedPoint, Interest {
     TrancheLike     public juniorTranche;
     NAVFeedLike     public navFeed;
     ReserveLike     public reserve;
+    ClerkLike       public clerk
 
     constructor() public {
         wards[msg.sender] = 1;
@@ -75,6 +81,8 @@ contract Assessor is Auth, FixedPoint, Interest {
             juniorTranche = TrancheLike(addr);
         } else if (contractName == "reserve") {
             reserve = ReserveLike(addr);
+        } else if (contractName == "clerk") {
+            reserve = ClerkLike(addr);
         } else revert();
     }
 
@@ -127,7 +135,7 @@ contract Assessor is Auth, FixedPoint, Interest {
     }
 
     function calcJuniorTokenPrice() external view returns(uint) {
-        return calcJuniorTokenPrice(navFeed.currentNAV(), reserve.totalBalance());
+        return calcJuniorTokenPrice(navFeed.currentNAfV(), reserve.totalBalance());
     }
 
     function calcTokenPrices() external view returns (uint, uint) {
@@ -140,33 +148,33 @@ contract Assessor is Auth, FixedPoint, Interest {
         return (calcJuniorTokenPrice(epochNAV, epochReserve), calcSeniorTokenPrice(epochNAV, epochReserve));
     }
 
-    function calcSeniorTokenPrice(uint epochNAV, uint epochReserve) public view returns(uint) {
-        if ((epochNAV == 0 && epochReserve == 0) || seniorTranche.tokenSupply() == 0) {
+    function calcSeniorTokenPrice(uint nav, uint reserve) public view returns(uint) {
+        if ((nav == 0 && reserve == 0) || seniorTranche.tokenSupply() == 0) {
             // initial token price at start 1.00
             return ONE;
         }
-        uint totalAssets = safeAdd(epochNAV, epochReserve);
+        uint totalAssets = safeAdd(nav, reserve);
         uint seniorAssetValue = calcSeniorAssetValue(seniorDebt(), seniorBalance_);
-
+        seniorAssetValue = safeAdd(seniorAssetValue, clerk.seniorProfit());
         if(totalAssets < seniorAssetValue) {
             seniorAssetValue = totalAssets;
         }
         return rdiv(seniorAssetValue, seniorTranche.tokenSupply());
     }
 
-    function calcJuniorTokenPrice(uint epochNAV, uint epochReserve) public view returns(uint) {
+    function calcJuniorTokenPrice(uint nav, uint reserve) public view returns(uint) {
         if ((epochNAV == 0 && epochReserve == 0) || juniorTranche.tokenSupply() == 0) {
             // initial token price at start 1.00
             return ONE;
         }
-        uint totalAssets = safeAdd(epochNAV, epochReserve);
+        uint totalAssets = safeAdd(nav, reserve);
         uint seniorAssetValue = calcSeniorAssetValue(seniorDebt(), seniorBalance_);
 
         if(totalAssets < seniorAssetValue) {
             return 0;
         }
-
-        return rdiv(safeSub(totalAssets, seniorAssetValue), juniorTranche.tokenSupply());
+        uint juniorAssetValue = safeAdd(safeSub(totalAssets, seniorAssetValue) clerk.juniorProfit());
+        return rdiv(juniorAssetValue, juniorTranche.tokenSupply());
     }
 
     /// repayment update keeps track of senior bookkeeping for repaid loans
